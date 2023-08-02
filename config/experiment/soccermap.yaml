@@ -1,0 +1,23 @@
+# @package _global_
+
+# The soccermap model
+
+defaults:
+  - override /module: null
+  - override /model_cfg: pytorch
+  - override /train_cfg: pytorch_gpu
+
+experiment_name: "soccermap"
+
+model_cfg:
+  _target_: statsbomb2023.modules.SoccerMapModule
+  lr: 1e-5
+
+train_cfg:
+  batch_size: 32
+  callbacks:
+    early_stopping:
+      min_delta: 1e-5
+
+module:
+  _target_: statsbomb2023.modules.SoccerMapModule
