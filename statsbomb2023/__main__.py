@@ -11,11 +11,14 @@ import numpy as np
 import typer
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import Dataset
+import pandas as pd
+from rich.progress import track
+
 
 from statsbomb2023.common import utils
 from statsbomb2023.common.config import logger
 from statsbomb2023.common.databases import Database, connect
-from statsbomb2023.modules import SoccerMapModule, train_module, test_module
+from statsbomb2023.modules import SoccerMapModule, train_module, test_module, predict
 from statsbomb2023.common.features import all_features
 from statsbomb2023.common.datasets import PassesDataset
 from statsbomb2023.common.labels import all_labels
@@ -189,7 +192,7 @@ def train(
     dataset_train = partial(PassesDataset, path=dataset_fp)
     # Instantiote model
     logger.info(f"Instantiating model component <{cfg['module']['_target_']}>")
-    module: pl.LightningModule = hydra.utils.instantiate(cfg.module, _convert_="partial")
+    module: pl.LightningModule = hydra.utils.instantiate(cfg.model_cfg, _convert_="partial")
     # Setup callbacks
     train_cfg = OmegaConf.to_object(cfg.get("train_cfg", DictConfig({})))
     utils.instantiate_callbacks(train_cfg)
@@ -243,9 +246,103 @@ def test(
     logger.info("Loading model component")
     module: pl.LightningModule = mlflow.pytorch.load_model(model_uri + "/model")
     logger.info("Starting evaluation!")
+    #TODO: Add test_cfg config
     metrics = test_module(module, dataset_test, **cfg.get("test_cfg", {}))
     logger.info(f"Test metrics: {json.dumps(metrics, indent=4, sort_keys=True)}")
     logger.info("✅ Finished evaluation.")
+
+
+@app.command()
+def predict_save_surface(
+    config_fp: Path = typer.Argument(..., show_default=False, help="Configuration file."),
+    dataset_fp: Optional[Path] = typer.Argument(
+        None,
+        show_default=False,
+        help="The directory where the evaluation dataset is stored.",
+    ),
+    save_fp: Optional[Path] = typer.Argument(
+        None,
+        show_default=False,
+        help="The directory where the surfaces will be saved.",
+    ),
+    model_uri: str = typer.Argument(
+        ...,
+        show_default=False,
+        help="The URI of the model to test.",
+    ),
+    overrides: Optional[List[str]] = typer.Argument(
+        None,
+        show_default=False,
+        help="Overrides for the configuration file.",
+    ),
+):
+    """Evaluate a model component."""
+    cfg = parse_config(config_path=config_fp, overrides=overrides)
+    logger.info("Instantiating dataset to predict.")
+    dataset_test = partial(PassesDataset, path=dataset_fp)
+    logger.info("Loading model component")
+    module: pl.LightningModule = mlflow.pytorch.load_model(model_uri + "/model")
+    logger.info("Starting predictions!")
+    preds = predict(module, dataset_test, **cfg.get("test_cfg", {}))
+    #df  =pd.DataFrame.from_dict({k: v for k, v in preds[3837597].items()},orient='index',columns = ["action_id","spm"] )
+    #print(df)
+    #print(pd.DataFrame.from_dict(preds[3837597],orient='index',columns = ["action_id","spm"]))
+    psm_dict = {}
+    for v, k in track(preds.items(), description=f"Saving surfaces"):
+    #for v, k in preds.items():
+        df = pd.DataFrame(index=preds[v].keys())
+        df["psm"] = np.array(list(preds[v].values())).tolist()
+        psm_dict[v] = df
+    final = pd.concat(psm_dict,names=['game_id', 'action_id'])
+    if dataset_fp is not None:
+        assert dataset_fp is not None
+        final.to_parquet(save_fp / f"x_psm.parquet")
+    logger.info("✅ Finished predictions and saving the psm.")
+
+
+@app.command()
+def predict_save_vector(
+    config_fp: Path = typer.Argument(..., show_default=False, help="Configuration file."),
+    dataset_fp: Optional[Path] = typer.Argument(
+        None,
+        show_default=False,
+        help="The directory where the evaluation dataset is stored.",
+    ),
+    save_fp: Optional[Path] = typer.Argument(
+        None,
+        show_default=False,
+        help="The directory where the surfaces will be saved.",
+    ),
+    model_uri: str = typer.Argument(
+        ...,
+        show_default=False,
+        help="The URI of the model to test.",
+    ),
+    overrides: Optional[List[str]] = typer.Argument(
+        None,
+        show_default=False,
+        help="Overrides for the configuration file.",
+    ),
+):
+    """Evaluate a model component."""
+    cfg = parse_config(config_path=config_fp, overrides=overrides)
+    logger.info("Instantiating dataset to predict.")
+    dataset_test = partial(PassesDataset, path=dataset_fp)
+    logger.info("Loading model component")
+    module: pl.LightningModule = mlflow.pytorch.load_model(model_uri + "/model")
+    logger.info("Starting predictions!")
+    preds = predict(module, dataset_test, **cfg.get("test_cfg", {}))
+    vector_dict = {}
+    for v, k in track(preds.items(), description=f"Saving surfaces"):
+    #for v, k in preds.items():
+        df = pd.DataFrame(index=preds[v].keys())
+        df["vector"] = np.array(list(preds[v].values())).tolist()
+        vector_dict[v] = df
+    final = pd.concat(vector_dict,names=['game_id', 'action_id'])
+    if dataset_fp is not None:
+        assert dataset_fp is not None
+        final.to_parquet(save_fp / f"vectors.parquet")
+    logger.info("✅ Finished predictions and saving the vectors.")
 
 
 '''

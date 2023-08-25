@@ -156,7 +156,7 @@ def feature_column_names(fs: List[Callable], nb_prev_actions: int = 3) -> List[s
     list(str)
         The name of each generated feature.
     """
-    cols = TABLE_ACTIONS + ["type_name", "result_name", "bodypart_name"]
+    cols = TABLE_ACTIONS + ["is_home","type_name", "result_name", "bodypart_name"]
     dummy_actions = pd.DataFrame(np.zeros((10, len(cols))), columns=cols).set_index(
         ["game_id", "action_id"]
     )
@@ -187,6 +187,93 @@ time_delta = required_fields(["time_seconds"])(fs.time_delta)
 space_delta = required_fields(["start_x", "start_y", "end_x", "end_y"])(fs.space_delta)
 goalscore = required_fields(["team_id", "type_name", "result_id"])(fs.goalscore)
 
+#TODO: remaning until end of the match or the period?
+@required_fields(["possession_team_id","is_home"])
+@fs.simple
+def home_away(actions):
+    """Remaining minutes of the match.
+
+    Parameters
+    ----------
+    actions : SPADLActions
+        The actions of a game.
+
+    Returns
+    -------
+    Features
+        The time when each action was performed.
+    """
+    return actions[["is_home"]]
+
+#TODO: remaning until end of the match or the period?
+@required_fields(["time_seconds", "period_id"])
+@fs.simple
+def remain_min(actions):
+    """Remaining minutes of the match.
+
+    Parameters
+    ----------
+    actions : SPADLActions
+        The actions of a game.
+
+    Returns
+    -------
+    Features
+        The time when each action was performed.
+    """
+    timedf = actions[['period_id', 'time_seconds']].copy()
+    timedf['time_seconds_overall'] = ((timedf.period_id - 1) * 45 * 60) + timedf.time_seconds
+    return timedf
+
+
+@required_fields(["play_pattern_name"])
+@fs.simple
+def play_pattern_name(actions):
+    """Get the location where each action started relative to the sideline and goalline.
+
+    Parameters
+    ----------
+    actions : SPADLActions
+        The actions of a game.
+
+    Returns
+    -------
+    Features
+        The 'start_dist_sideline' and 'start_dist_goalline' of each action.
+    """
+    #TODO: team_id or possession_team_id?
+    return actions[["play_pattern_name"]]
+
+@required_fields(["possession_team_id"])
+@fs.simple
+def pass_team_id(actions):
+    """Get the location where each action started relative to the sideline and goalline.
+
+    Parameters
+    ----------
+    actions : SPADLActions
+        The actions of a game.
+
+    Returns
+    -------
+    Features
+        The 'start_dist_sideline' and 'start_dist_goalline' of each action.
+    """
+    #TODO: team_id or possession_team_id?
+    return actions[["possession_team_id"]]
+
+def psm(actions):
+    """Get the PSM of the pass.
+
+    Parameters
+    ----------
+    actions : SPADLActions
+        The actions of a game.
+
+    Returns
+    -------
+    """
+    return actions[["psm"]]
 
 @required_fields(["start_x", "start_y"])
 @fs.simple
@@ -928,7 +1015,10 @@ def get_features(
     # convert actions to gamestates
     home_team_id, _ = db.get_home_away_team_id(game_id)
     gamestates = play_left_to_right(to_gamestates(actions, nb_prev_actions), home_team_id)
-    # compute features
+    # compute featuresq
+    #TODO: add if to check if is home in xfns
+    for i in range(len(gamestates)):
+        gamestates[i]["is_home"] = gamestates[i]["possession_team_id"] == home_team_id
     df_features = reduce(
         lambda left, right: pd.merge(left, right, how="outer", left_index=True, right_index=True),
         (fn(gamestates).loc[idx] for fn in xfns),

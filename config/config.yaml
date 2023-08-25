@@ -12,7 +12,7 @@ defaults:
   - train_cfg: train_cfg
 
   # Experiment configuration
-  - experiment: soccermap
+  - experiment: encoder
   # - hparams_search: null
 
   - hydra: default.yaml
